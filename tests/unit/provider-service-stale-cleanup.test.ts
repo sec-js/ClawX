@@ -205,7 +205,7 @@ describe('ProviderService.listAccounts (openclaw.json as sole source of truth)',
     mocks.getOpenClawProvidersConfig.mockResolvedValue({
       providers: {
         openai: { baseUrl: 'https://api.openai.com/v1', api: 'openai-responses' },
-        'openai-codex': { baseUrl: 'https://api.openai.com/v1', api: 'openai-codex-responses' },
+        'openai-codex': { baseUrl: 'https://api.openai.com/v1', api: 'openai-chatgpt-responses' },
       },
       defaultModel: 'openai-codex/gpt-5.5',
     });
@@ -276,6 +276,73 @@ describe('ProviderService.listAccounts (openclaw.json as sole source of truth)',
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('openai-oauth-1');
     expect(result[0].authMode).toBe('oauth_browser');
+  });
+
+  it('hides bare openai after Codex OAuth is removed and no API key is configured', async () => {
+    mocks.listProviderAccounts.mockResolvedValue([
+      makeAccount({
+        id: 'openai',
+        vendorId: 'openai' as ProviderAccount['vendorId'],
+        authMode: 'api_key',
+        label: 'OpenAI',
+      }),
+    ]);
+    mocks.getApiKey.mockResolvedValue(null);
+    mocks.getProviderApiKeyFromOpenClaw.mockResolvedValue(null);
+    mocks.getActiveOpenClawProviders.mockResolvedValue(new Set(['openai']));
+    mocks.getOpenClawProvidersConfig.mockResolvedValue({
+      providers: {
+        openai: { baseUrl: 'https://api.openai.com/v1', api: 'openai-responses' },
+      },
+      defaultModel: 'minimax-portal/MiniMax-M3',
+    });
+
+    const result = await service.listAccounts();
+
+    expect(result).toHaveLength(0);
+    expect(mocks.deleteProviderAccount).toHaveBeenCalledWith('openai');
+    expect(mocks.saveProviderAccount).not.toHaveBeenCalled();
+  });
+
+  it('keeps openai visible when only OpenClaw auth-profiles has the API key', async () => {
+    mocks.listProviderAccounts.mockResolvedValue([]);
+    mocks.getApiKey.mockResolvedValue(null);
+    mocks.getProviderApiKeyFromOpenClaw.mockImplementation(async (provider: string) => (
+      provider === 'openai' ? 'sk-openclaw-imported' : null
+    ));
+    mocks.getActiveOpenClawProviders.mockResolvedValue(new Set(['openai']));
+    mocks.getOpenClawProvidersConfig.mockResolvedValue({
+      providers: {
+        openai: { baseUrl: 'https://api.openai.com/v1', api: 'openai-responses' },
+      },
+      defaultModel: 'openai/gpt-5.5',
+    });
+    mocks.getProviderDefinition.mockImplementation((key: string) => {
+      if (key === 'openai') {
+        return {
+          id: 'openai',
+          name: 'OpenAI',
+          defaultAuthMode: 'api_key',
+          defaultModelId: 'gpt-5.5',
+          providerConfig: {
+            baseUrl: 'https://api.openai.com/v1',
+            api: 'openai-responses',
+          },
+        };
+      }
+      return undefined;
+    });
+
+    const result = await service.listAccounts();
+
+    expect(mocks.saveProviderAccount).toHaveBeenCalledTimes(1);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(expect.objectContaining({
+      id: 'openai',
+      vendorId: 'openai',
+      authMode: 'api_key',
+    }));
+    expect(mocks.deleteProviderAccount).not.toHaveBeenCalled();
   });
 
   it('matches UUID-based store account to openclaw key via getOpenClawProviderKeyForType', async () => {
@@ -481,23 +548,16 @@ describe('ProviderService.listAccounts (openclaw.json as sole source of truth)',
 
     const result = await service.listAccounts();
 
-    expect(mocks.saveProviderAccount).toHaveBeenCalledTimes(2);
-    expect(result).toHaveLength(2);
-    expect(result).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'openai',
-        vendorId: 'openai',
-        authMode: 'oauth_browser',
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-5.2',
-      }),
+    expect(mocks.saveProviderAccount).toHaveBeenCalledTimes(1);
+    expect(result).toHaveLength(1);
+    expect(result).toEqual([
       expect.objectContaining({
         id: 'anthropic',
         vendorId: 'anthropic',
         authMode: 'api_key',
         model: 'claude-opus-4-6',
       }),
-    ]));
+    ]);
   });
 });
 
