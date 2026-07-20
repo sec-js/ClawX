@@ -47,6 +47,7 @@ interface ChatInputProps {
   onStop?: () => void;
   disabled?: boolean;
   sending?: boolean;
+  imageGenerating?: boolean;
   workspaceLabel?: string;
   workspacePath?: string;
   workspaceReadOnly?: boolean;
@@ -201,6 +202,7 @@ export function ChatInput({
   onStop,
   disabled = false,
   sending = false,
+  imageGenerating = false,
   workspaceLabel,
   workspacePath,
   workspaceReadOnly = false,
@@ -678,7 +680,11 @@ export function ChatInput({
 
   const allReady = attachments.length === 0 || attachments.every(a => a.status === 'ready');
   const hasFailedAttachments = attachments.some((a) => a.status === 'error');
-  const canSend = (input.trim() || attachments.length > 0) && allReady && !inputDisabled && !sending;
+  const canSend = (input.trim() || attachments.length > 0)
+    && allReady
+    && !inputDisabled
+    && !sending
+    && !imageGenerating;
   const canStop = sending && !inputDisabled && !!onStop;
 
   const handleSend = useCallback(async () => {
@@ -884,6 +890,27 @@ export function ChatInput({
               </span>
             </span>
             <span>{t('composer.thinking')}</span>
+          </div>
+        )}
+
+        {!sending && imageGenerating && (
+          <div
+            data-testid="chat-composer-image-generation-indicator"
+            role="status"
+            aria-live="polite"
+            aria-label={t('imageGeneration.generating')}
+            className="mb-2 flex h-5 items-center gap-2 text-sm text-muted-foreground"
+          >
+            <span
+              data-testid="chat-composer-image-generation-dot-pulse"
+              aria-hidden="true"
+              className="clawx-chat-thinking-dot-pulse"
+            >
+              <span className="clawx-chat-thinking-dot-pulse-inner">
+                <span className="clawx-chat-thinking-dot-pulse-dot" />
+              </span>
+            </span>
+            <span>{t('imageGeneration.generating')}</span>
           </div>
         )}
 
