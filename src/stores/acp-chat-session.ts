@@ -40,9 +40,11 @@ import { hashOpenClawMediaDiagnostic, type OpenClawMediaCandidate } from '@/lib/
 import { openClawResourceLinkPromptText } from '@/lib/acp/openclaw-prompt-compat';
 import { fetchOpenClawTranscriptSupplement } from '@/lib/acp/transcript-supplement';
 import { alignHistoricalTurnTimings, type AcpTurnTiming } from '@/lib/acp/turn-timings';
+import { buildCronHistoryAcpNotifications, fetchCronSessionHistory } from '@/lib/cron-session-history';
 import { hostApi } from '@/lib/host-api';
 import { hostEvents } from '@/lib/host-events';
 import type { AcpTimelineSnapshot, MessageSegmentItem, PermissionItem, RenderPart } from '@/lib/acp/timeline-types';
+import { isCronSessionKey } from './chat/cron-session-utils';
 
 const EMPTY_SESSION_ID = '';
 const CANCEL_PERMISSION_OPTION_ID = '__cancelled__';
@@ -1063,6 +1065,22 @@ export const useAcpChatSessionStore = create<AcpChatSessionState>((set, get) => 
       }
 
       const generation = result.generation ?? state.generation;
+      let cronHistoryNotifications: ReturnType<typeof buildCronHistoryAcpNotifications> = [];
+      if (!input.createIfMissing && isCronSessionKey(input.sessionKey)) {
+        try {
+          const cronMessages = await fetchCronSessionHistory(input.sessionKey, 200);
+          cronHistoryNotifications = buildCronHistoryAcpNotifications(input.sessionKey, cronMessages);
+        } catch {
+          // ACP replay remains authoritative; cron history is best-effort only.
+        }
+        state = get();
+        if (
+          loadRequestSeq !== requestId
+          || state.activeSessionKey !== input.sessionKey
+          || state.workspaceRoot !== input.workspaceRoot
+          || state.cwd !== input.cwd
+        ) return false;
+      }
       const sessionUpdates = [
         ...(result.sessionUpdates ?? []),
         ...(pendingLoadUpdates.get(generation) ?? []),
@@ -1088,6 +1106,11 @@ export const useAcpChatSessionStore = create<AcpChatSessionState>((set, get) => 
         : createEmptyAcpTimeline(input.sessionKey, generation);
       for (const event of sessionUpdates) {
         timeline = applyAcpSessionUpdate(timeline, event.notification, { historical: !!event.historical });
+      }
+      if (timeline.itemOrder.length === 0) {
+        for (const notification of cronHistoryNotifications) {
+          timeline = applyAcpSessionUpdate(timeline, notification, { historical: true });
+        }
       }
       const pendingAttachments = newPendingAttachments(
         createEmptyAcpTimeline(input.sessionKey, generation),
